@@ -12,10 +12,14 @@ AI 门店军师 MVP - 主程序
 import os
 import sys
 import json
+from pathlib import Path
 from datetime import datetime, timedelta
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from dotenv import load_dotenv
+
+# 脚本所在目录，确保无论从哪个目录运行都能找到数据文件
+_BASE_DIR = Path(__file__).parent
 
 import database
 
@@ -148,7 +152,7 @@ def filter_inactive_customers(customers, days_threshold=180):
 def load_store_info():
     """读取本地门店配置"""
     try:
-        with open("store_info.json", "r", encoding="utf-8") as f:
+        with open(_BASE_DIR / "store_info.json", "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         print(f"警告：无法读取门店配置 ({e})，使用默认空白信息。")
@@ -228,8 +232,8 @@ def generate_all_messages(inactive_customers):
     """
     为所有筛选出的客户批量生成话术。
     """
-    # 加载 .env 配置
-    load_dotenv()
+    # 加载 .env 配置（使用绝对路径，兼容任意工作目录，并强制覆盖以防 Streamlit 缓存）
+    load_dotenv(dotenv_path=_BASE_DIR / ".env", override=True)
 
     api_key = os.getenv("AI_API_KEY")
     base_url = os.getenv("AI_BASE_URL")
@@ -380,7 +384,7 @@ def main():
     print("=" * 55)
 
     # ---------- 第 1 步：读取 Excel ----------
-    input_file = "客户信息表.xlsx"
+    input_file = _BASE_DIR / "客户信息表.xlsx"
     print(f"\n第 1 步：读取客户数据 ({input_file})...")
     customers = read_customer_excel(input_file)
     print(f"   共读取到 {len(customers)} 条客户记录")
@@ -402,7 +406,7 @@ def main():
 
     # ---------- 第 4 步：输出结果 ----------
     print(f"\n第 4 步：保存结果到 Excel...")
-    output_file = save_results_to_excel(results)
+    output_file = save_results_to_excel(results, str(_BASE_DIR / "促活话术结果.xlsx"))
     print(f"   结果已保存到：{output_file}")
 
     # ---------- 运行摘要 ----------

@@ -6,8 +6,35 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 import database
 import main as core_logic
+
+# 稳健的 .env 加载方案（手动覆盖，防止 Streamlit 环境下的 dotenv 缓存或路径失效）
+_APP_DIR = Path(__file__).resolve().parent
+_ENV_PATH = _APP_DIR / ".env"
+
+def force_load_env():
+    # 优先使用绝对路径加载
+    if _ENV_PATH.exists():
+        # 1. 尝试常规 load_dotenv
+        load_dotenv(dotenv_path=str(_ENV_PATH), override=True)
+        # 2. 暴力手动写入 os.environ（这是最有效防止各种灵异事件的方法）
+        with open(_ENV_PATH, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    k, v = k.strip(), v.strip()
+                    # 去除可能的引号
+                    if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                        v = v[1:-1]
+                    os.environ[k] = v
+    else:
+        load_dotenv(override=True)
+
+force_load_env()
 
 # --- 页面配置 ---
 st.set_page_config(page_title="AI 门店军师工作台", page_icon="🏪", layout="wide")
@@ -119,13 +146,22 @@ else:
                 else:
                     try:
                         from openai import OpenAI
-                        core_logic.load_dotenv()
+                        
+                        # 获取配置：优先查系统环境变量(含.env)，拿不到再去查 Streamlit Cloud 的 st.secrets
+                        api_key = os.getenv("AI_API_KEY") or (st.secrets.get("AI_API_KEY") if "AI_API_KEY" in st.secrets else None)
+                        base_url = os.getenv("AI_BASE_URL") or (st.secrets.get("AI_BASE_URL") if "AI_BASE_URL" in st.secrets else "https://api.deepseek.com")
+                            
                         client = OpenAI(
-                            api_key=os.getenv("AI_API_KEY"),
-                            base_url=os.getenv("AI_BASE_URL")
+                            api_key=api_key,
+                            base_url=base_url
                         )
+                        if not api_key:
+                            raise ValueError(f"AI_API_KEY 未配置，尝试加载的 .env 路径为: {_ENV_PATH}，或者请检查 Streamlit Secrets 设置。")
                     except Exception as e:
-                        st.error("无法初始化 AI，请确保根目录 .env 已填好密钥。")
+                        import traceback
+                        st.error(f"无法初始化 AI！\n错误类型: {type(e).__name__}\n详细信息: {str(e)}")
+                        with st.expander("查看详细报错堆栈"):
+                            st.code(traceback.format_exc())
                         st.stop()
                         
                     with st.spinner("AI 营销总监正在为您日夜赶稿..."):
@@ -290,13 +326,23 @@ else:
                     store_info = load_store_info()
                     try:
                         from openai import OpenAI
-                        core_logic.load_dotenv()
+                        
+                        force_load_env()
+                        
+                        api_key = os.getenv("AI_API_KEY") or (st.secrets.get("AI_API_KEY") if "AI_API_KEY" in st.secrets else None)
+                        base_url = os.getenv("AI_BASE_URL") or (st.secrets.get("AI_BASE_URL") if "AI_BASE_URL" in st.secrets else "https://api.deepseek.com")
+                        
                         client = OpenAI(
-                            api_key=os.getenv("AI_API_KEY"),
-                            base_url=os.getenv("AI_BASE_URL")
+                            api_key=api_key,
+                            base_url=base_url
                         )
+                        if not api_key:
+                            raise ValueError("AI_API_KEY 未配置，请检查 .env 或 Streamlit Secrets")
                     except Exception as e:
-                        st.error("无法初始化 AI 客户端，请检查 .env。")
+                        import traceback
+                        st.error(f"无法初始化 AI 客户端！\n错误类型: {type(e).__name__}\n详细信息: {str(e)}")
+                        with st.expander("查看详细报错堆栈"):
+                            st.code(traceback.format_exc())
                         st.stop()
                         
                     threading.Thread(target=core_logic.bg_generate_worker, args=(inactive, client, store_info)).start()
